@@ -1,0 +1,121 @@
+---
+title: 'HW10 : Web Scraping Script'
+author: "Emre Yurtbay"
+date: "4/1/2019"
+output: pdf_document
+---
+
+## Web Scraping Description
+To supplement our election related tweets, we also used web scraping to collect polling data from RealClearPolitics.com. We  gathered polling data from multiple states, including Florida, Georgia, Nevada, and Arizona, which totals to 1138 rows. There is no indication that we should not scrape the data, as it is public domain already. A good example of one of the webpages we scraped can be found here: "https://www.realclearpolitics.com/epolls/2018/governor/fl/florida_governor_desantis_vs_gillum-6518.html#polls." 
+
+```{r}
+library(XML)
+
+# start the table with a file
+url <- "https://www.realclearpolitics.com/epolls/2018/governor/fl/florida_governor_desantis_vs_gillum-6518.html#polls"
+download.file(url, destfile = "/Users/emreyurtbay/Documents/Rice/junior/stat405/advfn.html")
+doc <- htmlParse("/Users/emreyurtbay/Documents/Rice/junior/stat405/advfn.html")
+
+# Fix names and free the doc
+polling <- readHTMLTable(doc)[[4]][,c(2,5,6)]
+colnames(polling) <-c("Date", "Democrat", "Republican")
+polling
+free(doc)
+
+# URLS we want to scrape from
+urls <- c(
+        #"https://www.realclearpolitics.com/epolls/other/2018_generic_congressional_vote-6185.html#polls"
+        "https://www.realclearpolitics.com/epolls/2018/governor/fl/florida_governor_desantis_vs_gillum-6518.html#polls",
+        "https://www.realclearpolitics.com/epolls/2018/governor/ga/georgia_governor_kemp_vs_abrams-6628.html",
+        "https://www.realclearpolitics.com/epolls/2018/governor/ak/alaska_governor_dunleavy_vs_begich-6711.html",
+        "https://www.realclearpolitics.com/epolls/2018/governor/nv/nevada_governor_laxalt_vs_sisolak-6422.html",
+        "https://www.realclearpolitics.com/epolls/2018/governor/or/oregon_governor_buehler_vs_brown-6428.html",
+        "https://www.realclearpolitics.com/epolls/2018/governor/tx/texas_governor_abbott_vs_valdez-6435.html",
+        "https://www.realclearpolitics.com/epolls/2018/governor/nm/new_mexico_governor_pearce_vs_grisham-6440.html",
+        "https://www.realclearpolitics.com/epolls/2018/governor/ca/california_governor_cox_vs_newsom-6593.html",
+        "https://www.realclearpolitics.com/epolls/2018/governor/ny/new_york_governor_molinaro_vs_cuomo-6536.html",
+        "https://www.realclearpolitics.com/epolls/2018/governor/pa/pennsylvania_governor_wagner_vs_wolf-6542.html#polls",
+        "https://www.realclearpolitics.com/epolls/2018/governor/oh/ohio_governor_dewine_vs_cordray-6426.html",
+        "https://www.realclearpolitics.com/epolls/2018/governor/nh/new_hampshire_governor_sununu_vs_kelly-6561.html",
+        "https://www.realclearpolitics.com/epolls/2018/governor/ma/massachusetts_governor_baker_vs_gonzalez-6418.html",
+        "https://www.realclearpolitics.com/epolls/2018/governor/ct/connecticut_governor_stefanowski_vs_lamont-6577.html",
+        "https://www.realclearpolitics.com/epolls/2018/senate/fl/florida_senate_scott_vs_nelson-6246.html",
+        "https://www.realclearpolitics.com/epolls/2018/senate/ca/california_senate_feinstein_vs_de_leon-6592.html",
+        "https://www.realclearpolitics.com/epolls/2018/senate/tx/texas_senate_cruz_vs_orourke-6310.html",
+        "https://www.realclearpolitics.com/epolls/2018/senate/nm/new_mexico_senate_rich_vs_heinrich_vs_johnson-6663.html",
+        "https://www.realclearpolitics.com/epolls/2018/senate/az/arizona_senate_mcsally_vs_sinema-6328.html",
+        "https://www.realclearpolitics.com/epolls/2018/senate/nv/nevada_senate_heller_vs_rosen-6304.html",
+        "https://www.realclearpolitics.com/epolls/2018/senate/mt/montana_senate_rosendale_vs_tester-6306.html",
+        "https://www.realclearpolitics.com/epolls/2018/senate/mo/missouri_senate_hawley_vs_mccaskill-6280.html",
+        "https://www.realclearpolitics.com/epolls/2018/senate/tn/tennessee_senate_blackburn_vs_bredesen-6308.html",
+        "https://www.realclearpolitics.com/epolls/2018/senate/in/indiana_senate_braun_vs_donnelly_vs_brenton-6671.html",
+        "https://www.realclearpolitics.com/epolls/2018/senate/oh/ohio_senate_renacci_vs_brown-6331.html",
+        "https://www.realclearpolitics.com/epolls/2018/senate/mi/michigan_senate_james_vs_stabenow-6325.html",
+        "https://www.realclearpolitics.com/epolls/2018/senate/wi/wisconsin_senate_vukmir_vs_baldwin-6313.html",
+        "https://www.realclearpolitics.com/epolls/2018/senate/wv/west_virginia_senate_morrisey_vs_manchin-6258.html",
+        "https://www.realclearpolitics.com/epolls/2018/senate/va/virginia_senate_stewart_vs_kaine-6321.html",
+        "https://www.realclearpolitics.com/epolls/2018/senate/pa/pennsylvania_senate_barletta_vs_casey-6312.html",
+        "https://www.realclearpolitics.com/epolls/2018/senate/ny/new_york_senate_farley_vs_gillibrand-6539.html",
+        "https://www.realclearpolitics.com/epolls/2018/senate/ma/massachusetts_senate_diehl_vs_warren-6581.html",
+        "https://www.realclearpolitics.com/epolls/2018/senate/ct/connecticut_senate_corey_vs_murphy-6262.html",
+        "https://www.realclearpolitics.com/epolls/2016/president/us/general_election_trump_vs_clinton-5491.html"
+         )
+
+for (u in urls) {
+  
+  # download file
+  download.file(u, destfile = "/Users/emreyurtbay/Documents/Rice/junior/stat405/advfn.html")
+  doc <- htmlParse("/Users/emreyurtbay/Documents/Rice/junior/stat405/advfn.html")
+  
+  
+  # Various tables we want to scrape
+  if(length(readHTMLTable(doc)) > 2){
+    temp <- readHTMLTable(doc)[[4]][,c(2,5,6)]
+    colnames(temp) <-c("Date", "Democrat", "Republican")
+    polling <- rbind(polling, temp)
+  } 
+  
+  else if (length(readHTMLTable(doc)) > 1){
+    temp <- readHTMLTable(doc)[[2]][,c(2,5,6)]
+    colnames(temp) <-c("Date", "Democrat", "Republican")
+    polling <- rbind(polling, temp)
+    
+  } else {
+    temp <- readHTMLTable(doc)[[1]][,c(2,5,6)]
+    colnames(temp) <-c("Date", "Democrat", "Republican")
+    polling <- rbind(polling, temp)
+  }
+  
+  free(doc)
+  
+}
+
+# add a final url  
+url <- "https://www.realclearpolitics.com/epolls/other/2018_generic_congressional_vote-6185.html"
+download.file(url, destfile = "/Users/emreyurtbay/Documents/Rice/junior/stat405/advfn.html")
+doc <- htmlParse("/Users/emreyurtbay/Documents/Rice/junior/stat405/advfn.html")
+temp <- readHTMLTable(doc)[[4]][,c(2,4,5)]
+colnames(temp) <-c("Date", "Democrat", "Republican")
+polling <- rbind(polling, temp)
+free(doc)
+```
+
+
+```{r}
+nrow(polling)
+```
+
+```{r}
+polling <- write.csv(polling, file = "/Users/emreyurtbay/Documents/Rice/junior/stat405/polling.csv")
+```
+
+```{r}
+# Send to SQL DB
+library(RSQLite)
+dcon <- dbConnect(SQLite(),
+                  dbname = "/Users/emreyurtbay/Documents/Rice/junior/stat405/group2.sqlite")
+table <- read.csv(paste0("/Users/emreyurtbay/Documents/Rice/junior/stat405/polling.csv"))
+dbWriteTable(conn = dcon, name = "polling-data", table,
+             append = TRUE, row.names = FALSE)
+```
+
