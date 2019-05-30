@@ -1,0 +1,791 @@
+---
+title: "Twitter Data Analysis - Final Report"
+author: "Emre Yurtbay, Shashank Mahesh, Ryan Carlson"
+date: "4/12/2019"
+output:
+  pdf_document: default
+  html_document: default
+  
+fontsize: 10pt
+geometry: margin=1in
+---
+
+```{r, echo = FALSE, warning=F, message=FALSE}
+library(dplyr)
+library(ggplot2)
+library(tidytext)
+library(tidyverse)
+library(ggcorrplot)
+library(RSQLite)
+library(XML)
+library(knitr)
+library(RColorBrewer)
+library(grid)
+library(gridBase)
+```
+
+```{r, echo = FALSE}
+#twits <- read.csv(
+#  '/Users/emreyurtbay/Documents/Rice/junior/stat405/TweetData.csv'
+#  )
+library(RSQLite)
+library(knitr)
+dcon <- dbConnect(SQLite(),
+#dbname = "C:\\Users\\smahe\\Desktop\\405\\group2.sqlite")
+                  
+dbname = "/Users/emreyurtbay/Documents/Rice/junior/stat405/group2.sqlite")
+
+query <- "SELECT created_at, user_statuses_count, 
+                 user_favourites_count, screen_name, source, text,
+                user_favourites_count, user_followers_count, user_friends_count
+            FROM 'florida-11-1' 
+              ORDER BY created_at"
+res <- dbSendQuery(conn = dcon,query)
+twits11_1 <- dbFetch(res, -1)
+dbClearResult(res)
+
+query <- "SELECT created_at, user_statuses_count, 
+                 user_favourites_count, screen_name, source, text,
+                user_favourites_count, user_followers_count, user_friends_count
+            FROM 'florida-11-5' 
+              ORDER BY created_at"
+res <- dbSendQuery(conn = dcon,query)
+twits11_5 <- dbFetch(res, -1)
+dbClearResult(res)
+
+query <- "SELECT created_at, user_statuses_count, 
+                 user_favourites_count, screen_name, source, text,
+                user_favourites_count, user_followers_count, user_friends_count
+            FROM 'florida-11-6' 
+              ORDER BY created_at"
+res <- dbSendQuery(conn = dcon,query)
+twits11_6 <- dbFetch(res, -1)
+dbClearResult(res)
+
+query <- "SELECT created_at, user_statuses_count, 
+                 user_favourites_count, screen_name, source, text,
+                user_favourites_count, user_followers_count, user_friends_count
+            FROM 'florida-8-21' 
+              ORDER BY created_at"
+res <- dbSendQuery(conn = dcon,query)
+twits <- dbFetch(res, -1)
+dbClearResult(res)
+
+
+# Scraped Source
+query <- "SELECT *
+            FROM 'polling-data'"
+res <- dbSendQuery(conn = dcon,query)
+polls <- dbFetch(res, -1)
+dbClearResult(res)
+#dbDisconnect(dcon)
+```
+
+```{r, echo = FALSE, warning=F, message=FALSE}
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+
+theme_bluewhite <- function (base_size = 11, base_family = "") {
+    theme_bw() %+replace% 
+    theme(
+      panel.grid.major  = element_line(color = "white"),
+      panel.background = element_rect(fill = "lightblue"),
+      panel.border = element_rect(color = "lightblue", fill = NA),
+      axis.line = element_line(color = "lightblue"),
+      axis.ticks = element_line(color = "lightblue"),
+      axis.text = element_text(color = "steelblue")
+      )
+}
+  # Get General Users
+prolific <- dplyr::filter(twits, user_statuses_count >= 5812)
+notSpam <- dplyr::filter(prolific, user_favourites_count < 500000, user_statuses_count < 500000)
+notUltraFamous <- dplyr::filter(notSpam, user_followers_count < 500000)
+
+####################################################################################
+# SQL Not Ultra Famous
+query <- "SELECT created_at, user_statuses_count, 
+                 user_favourites_count, screen_name, source, text,
+                user_favourites_count, user_followers_count, user_friends_count
+            FROM 'florida-8-21' 
+              WHERE user_statuses_count >= 5812 AND user_favourites_count < 500000
+                    AND user_followers_count < 500000
+              ORDER BY created_at"
+res <- dbSendQuery(conn = dcon,query)
+twits <- dbFetch(res, -1)
+dbClearResult(res)
+#head(twits)
+####################################################################################
+
+# Where are people tweeting from
+sourceData <- dplyr::filter(
+  twits,
+  source %in%
+    c(
+      '<a href="http://twitter.com/download/iphone" rel="nofollow">Twitter for iPhone</a>',
+      '<a href="http://twitter.com/download/android" rel="nofollow">Twitter for Android</a>',
+      '<a href="http://twitter.com" rel="nofollow">Twitter Web Client</a>',
+      '<a href="http://twitter.com/#!/download/ipad" rel="nofollow">Twitter for iPad</a>',
+      '<a href="https://mobile.twitter.com" rel="nofollow">Twitter Lite</a>',
+      '<a href="https://ifttt.com" rel="nofollow">IFTTT</a>',
+      '<a href="http://www.facebook.com/twitter" rel="nofollow">Facebook</a>',
+      '<a href="http://www.tweetcaster.com" rel="nofollow">TweetCaster for Android</a>',
+      '<a href="http://instagram.com" rel="nofollow">Instagram</a>',
+      '<a href="http://www.twitter.com" rel="nofollow">Twitter for BlackBerry</a>'
+    )
+)
+
+# Who Are the Most Prolific Tweeters?
+screen_names <- as.data.frame(table(twits$screen_name))
+colnames(screen_names) <- c("User", "numTweets")
+highNames <- dplyr::filter(
+  screen_names, 
+  numTweets > 70)
+```
+
+```{r, echo = FALSE, warning=F, message=FALSE}
+library(XML)
+html_file <- "/Users/emreyurtbay/Documents/Rice/junior/stat405/advfn.html"
+#html_file <- "C:\\Users\\smahe\\Desktop\\405\\poll_data.html"
+url <- "https://www.realclearpolitics.com/epolls/2018/governor/fl/florida_governor_desantis_vs_gillum-6518.html#polls"
+download.file(url, destfile = html_file)
+doc <- htmlParse(html_file)
+
+# Fix names and free the doc
+polling <- readHTMLTable(doc)[[4]][,c(2,5,6)]
+colnames(polling) <-c("Date", "Democrat", "Republican")
+# <- polling[seq(dim(polling)[1],1),]
+#head(polling[-(1),]) %>% knitr::kable()
+free(doc)
+```
+
+# Introduction
+
+Our dataset is a collection of tweets we collected during the midterm election cycle in 2018. While much of our analysis focuses on the Florida senator election race between Ron DeSantis (R) and Andrew Gillum (D), we also collected tweets from the Kansas and Texas senator elections to bolster our dataset. The fields we have included user count, screen name, description, tweet text, like count, retweet count, source, friend count, and many more. We obtained the data ourselves using the twitter API and a continuous crawler. All we have to do is specify a set of hashtags and text, and we then recieve a JSON object that contains various information about tweets. 
+
+There are a number of questions we would like to answer about our data. First of all, we would like to learn about how Twitter works and how people tweet. What can we say about the relationships between retweets, favorites, and followers? What is the distribution of follower counts of twitter users? Do people who tweet more also have more followers? Do tweets follow Zipf's law? Next, we wanted to explore what kind of political questions we could answer using tweets. Can we find which topics dominate the discussion? Can we do time series anaysis to discover the times people tweet the most? Who are major influencers in the twitter network? 
+
+To supplement our election related tweets, we also used web scraping to collect polling data from RealClearPolitics.com. We  gathered polling data from multiple states, including Florida, Georgia, Nevada, and Arizona. By tracking the polls, we can see how candidates are performing at different points in time, seeing how the momentum shifts and changes.
+
+# Twitter Analytics: How do Twitter Users interact with the Platform?
+
+## A Linear Regression between Follower Count and Tweet Count
+
+The first thing we wanted to check was whether or not there was a relationship between follower count and tweet count. If we know how many tweets a user has sent out, is there any way we can predict how many followers they have? A good way to do this is to make a linear regression model, using the *lm* command in R. We subsetted our data to only include users with less than 500,000 followers, since very famous twitter accounts skew results quite a bit. By subsetting the data, we can get a more representative slice of the platform.
+
+```{r, echo = FALSE, warning=F, message=FALSE}
+# Is there a Significant Relationship Between Follower Count and How much you Tweet?
+library(broom)
+fit <- lm(user_followers_count ~ user_statuses_count, data = notUltraFamous)
+brm <- broom::tidy(fit) # %>% knitr::kable() -> regtable
+brm[2, 1] <- "Number of Tweets"
+brm %>% knitr::kable() -> regtable
+regtable
+```
+
+Hence, we could fit the model 
+$$ y = 0.03x + 3045.012$$
+to our data, where $x$ represents the number of tweets and $y$ represents the number of followers. As one would expect, those who tweet more are also more likely to have more followers. With every tweet sent out, the user can expect more engagement and hence, they will reach a large audience. A larger audience suggests the potential for more followers, regardless of the contoversality of the content. A graphical representation of this relationship can be found on the next graph. Note that R plots a smoothing spline instead of a line, which is a slightly more complex, yet related, linear model.
+
+## What is the Relationship Between Friends, Followers, and Number of Tweets
+
+```{r, echo = FALSE, warning=F, message=FALSE, fig.height= 5.5}
+# Does a User's Follower Count Relate to their Favorites Count?
+prolific <- dplyr::filter(twits, user_statuses_count >= 5812)
+notSpam <- dplyr::filter(prolific, user_favourites_count < 500000, user_statuses_count < 500000)
+notUltraFamous <- dplyr::filter(notSpam, user_followers_count < 500000)
+library(ggplot2)
+a <- ggplot2::ggplot(data = notUltraFamous)+
+  aes(x = user_statuses_count, y = user_followers_count )+
+  geom_smooth()+
+  xlab("Total Number of Tweets")+
+  ylab("Total Number of Followers")+
+  ggtitle("Relationship Between Tweet Count and Follower Count")
+b <- ggplot2::ggplot(data = twits)+
+  aes(x = user_followers_count, y = user_friends_count )+
+  geom_smooth()+
+  xlab("Total Number of Twitter Followers")+
+  ylab("Total Number of Twitter Friends")+
+  ggtitle("Relationship Between Twitter Friends and Followers")
+grid.newpage()
+pushViewport(viewport(layout = grid.layout(2,2)))
+print(a, vp = viewport(layout.pos.row = 1,
+                        layout.pos.col = 1:2))
+print(b, vp = viewport(layout.pos.row = 2,
+                       layout.pos.col = 1:2))
+```
+
+As was explained earlier, the more tweets somebody sends out, the more foloowers they are likely to have. Intrestingly, we see a different relationship between the number of followers a twitter user has and the number of "friends" they have. You are a "friend" with a twitter user if you follow them and they follow you back. As you gain more followers, your number of friends also tends to increase, up to a point. Then, as your follower count increases, the number of friends you have decreases. This implies that the ultra-famous follow very few of their followers back.
+
+## How are certain Variables Correlated?
+A quick way to see relationships between variables in our dataset is to plot a correllegram. If two variables have a high correlation, that means that they vary together strongly. As we can see in the plot below, the variables Friends and Followers have a very high correlation (0.8), while favorites and friends are hardly correlated at all (0.2)
+
+```{r, echo = FALSE, warning=F, message=FALSE, fig.height=3, fig.align="center"}
+normal_people <- filter(notUltraFamous,
+                        notUltraFamous$user_followers_count < 5000)
+x <- dplyr::select(normal_people, user_statuses_count, user_favourites_count,
+            user_followers_count, user_friends_count)
+colnames(x) <- c("Statuses", "Favorites", "Followers", "Friends")
+corr <- round(cor(x), 1)
+
+# Plot
+ggcorrplot(corr, hc.order = TRUE, 
+           type = "lower", 
+           lab = TRUE, 
+           lab_size = 3, 
+           method="circle", 
+           colors = c("tomato2", "white", "springgreen3"), 
+           title="Correlogram of Numeric Twitter Data Variables", 
+           ggtheme=theme_bw)
+```
+
+
+## Distribution of Follower Counts
+The vast majority of twitter users are not famous people, and the majority of political "tweeters" are normal people making their opinions heard on a public forum. In fact our analysis shows that the median twitter user in our dataset has just a shade over 1460 followers. What does the distribution of followers for regular people look like? Below, we show a denisty plot of follower counts for twitter users with less 5000 followers. The dark green line represents the median and the blue line represents the mean. The mean being greater than the median shows that the distribution is heavily right skewed.
+
+#### .
+```{r,echo = FALSE, warning=F, message=FALSE, fig.height = 4, fig.width = 6}
+normal_people <- filter(notUltraFamous,
+                        notUltraFamous$user_followers_count < 5000)
+ggplot(normal_people, aes(x=normal_people$user_followers_count)) + 
+ geom_histogram(aes(y=..density..), colour="black", fill="white")+
+ geom_density(alpha=.2, fill="#FF6666") +
+  xlab("User Follower Count") +
+  geom_vline(data=normal_people, aes(xintercept=mean(normal_people$user_followers_count)), color = "blue",
+             linetype="dashed")+
+  geom_vline(data=normal_people, aes(xintercept=median(normal_people$user_followers_count)), color = "dark green",
+             linetype="dashed")+
+  ylab("Density") +
+  ggtitle("Distribution of Follower Counts for 'Regular People'")
+```
+
+## From What Apps and Devices do People Tweet?
+Here, we see a barplot showing the sources from which people tweet the most. It appears most people are tweeting from their iPhones, which is probably to be expected. The next most used is the Andriod Twitter App, while a smaller percentage are using iPads and the Twitter Web Client. The various other sources are Andriod specific twitter clients. This chart confirms the popularity of the iPhone in the United States, but it shows that other media sources are not far behind.
+
+### .
+```{r, echo = FALSE, warning=F, message=FALSE, fig.height = 5, fig.width = 7}
+# Plot
+origplot <- ggplot(data = sourceData)+
+  aes(x = sourceData$source)+
+  geom_bar(aes(fill = source))+ scale_fill_manual(values=c("#4682B4", "#5F9EA0", "#4682B4", "#B0C4DE", "#B0E0E6", "#ADD8E6", "#87CEEB", "#87CEFA", "#00BFFF", "#1E90FF"))+
+  theme(axis.text.x = element_text(angle = 35, hjust = 1))+
+  scale_x_discrete(labels=c("Instagram", "Twitter Web Client", 
+                            "iPad", "Andriod", "iPhone",
+                            "Facebook", "TweetCaster", "IFTTT", "TwitterLite"))+
+  ggtitle("From Where Do People Tweet?")+
+  xlab("Source")+ylab("Count")+ theme(legend.position = "none")
+
+filteredData <- filter(sourceData, str_detect(source,"Instagram|Facebook|TweetCaster|IFTTT"))
+
+zoomedplot <- ggplot(data = filteredData)+
+  aes(x = filteredData$source)+
+  geom_bar(aes(
+               fill = source))+scale_fill_manual(values=c("#4682B4", "#ADD8E6", "#87CEEB", "#87CEFA"))+
+  theme(axis.text.x = element_text(angle = 35, hjust = 1))+
+  scale_x_discrete(labels=c(
+                            "Instagram", "Facebook", "TweetCaster", "IFTTT"))+
+  ggtitle("Less Used Sources")+
+  xlab("")+ylab("Count") +theme(legend.position = "none")
+
+
+embvp <- viewport(width = 0.38, height = 0.55, x = 0.8, y =0.7)
+origplot
+print(zoomedplot, vp = embvp)
+```
+
+## Do Tweets Follow Zipf's Law?
+A common thing to check when dealing with natural language is to see if your corpus folows Zipf's law. Zipf’s law states that the frequency that a word appears is inversely proportional to its rank. That is, the the second most common word in a corpus should appear half as much as the most common word, the third most common word should appear about a third as much as the most common, and so on. On a log-log scale, we should see an approximately straight line when we plot word rank vs term frequency, since an inversely proportional relationship will have a constant, negative slope. The corpus we put together consists of all the text of the tweets we collected. The purple line is the term frequency/rank relationship our data actually show. The deviations we see here at high rank are not uncommon for many kinds of language; a corpus of language often contains fewer rare words than predicted by a single power law. It seems that our tweets follow Zipf's law.
+```{r, echo = FALSE, warning=F, message=FALSE}
+library(tidytext)
+tweets <- dplyr::select(twits, screen_name, text)
+
+tidy_tweets <- unnest_tokens(
+  tweets, # tbl
+  word, # output
+  text # input
+                        ) 
+
+tidy_tweets <- dplyr::filter(tidy_tweets, 
+                        tidy_tweets$word != "rt", 
+                        tidy_tweets$word != "t.co",
+                        tidy_tweets$word != "https") # common stopword in our tweets
+
+wordCount <- count(tidy_tweets, word, sort = T)
+```
+
+```{r, echo = FALSE, warning=F, message=FALSE}
+total <- nrow(wordCount)
+freq_by_rank <- wordCount %>% 
+  mutate(rank = row_number(), 
+         `term frequency` = n/total)
+
+rank_subset <- freq_by_rank %>% 
+  filter(rank < 500,
+         rank > 10)
+
+reg <- lm(log10(`term frequency`) ~ log10(rank), data = rank_subset)
+intercept.1 <- 0.8671
+slope.1 <-  -0.9766
+
+freq_by_rank %>% 
+  ggplot(aes(rank, `term frequency`)) + 
+  #geom_abline(intercept = intercept.1, slope = slope.1, color = "grey50", linetype = 2, size = 1.1)+
+  geom_line(size = 1.3, alpha = 0.8, show.legend = FALSE, col = "Purple") + xlab("Log(Word Rank)") + ylab("Log(Term Frequency)")+
+  scale_x_log10() +
+  scale_y_log10()
+```
+
+
+# Answering Political Questions Using Twitter and Polling Data
+
+The majority of our twitter analysis focuses on the Florida gubernatorial race between Ron DeSantis (R) and Andrew Gillum (D). The election was hotly contested and the subject of much national discourse. Using twitter and polling data, we wanted to answer some questions about the elections. 
+
+## Who has a larger Twitter presence: DeSantis or Gillum?:
+
+A quick gauge of how much support a gubernatorial candidate may be garnering can be seen in how often they are mentioned in tweets. We counted the amount of times the strings "Gillum" or "DeSantis" occurred in our dataset. From the pie graph below, it seems that the democratic candidate, Gillum, was far more mentioned than his opponent DeSantis. This may also be due to twitter's well documented left-leaning bias. Twitter skews young, urban, and educated - these groups also tend to vote liberal.  Because of this, we may expect to see many more tweets talking about the democratic candidate as compared to the Republican. Our analysis seems to confirm this bias.
+
+```{r, echo = FALSE, warning=F, message=FALSE}
+library(stringr)
+gillum_mention <- str_locate(twits$text, fixed("gillum", ignore_case=TRUE))
+
+gillum_count <- length(gillum_mention[!is.na(gillum_mention)])
+
+desantis_mention <- str_locate(twits$text, fixed("desantis", ignore_case=TRUE))
+
+desantis_count <- length(desantis_mention[!is.na(desantis_mention)])
+
+df <- data.frame(
+  Candidate = c("DeSantis", "Gillum"),
+  Mentions = c(desantis_count, gillum_count)
+  )
+
+df %>% knitr::kable()
+
+# cand_plot <- barplot(c(desantis_count, gillum_count), main = "Mentions of Florida gubernatorial candidates", 
+#         names.arg = c("Desantis", "Gillum"), col=c("red","darkblue"), ylim = c(0, 120000))
+# 
+# text(x = cand_plot, y = c(desantis_count, gillum_count), label = c(desantis_count, gillum_count), pos = 3, cex = 0.8, col = "black")
+
+```
+
+```{r, echo = FALSE, warning=F, message=FALSE, fig.height=4, fig.align="center"}
+bp<- ggplot(df, aes(x="", y=Mentions, fill=Candidate))+
+geom_bar(width = 1, stat = "identity") +  coord_polar("y", start=0) + xlab("")+ylab("")+ggtitle("Mentions of Florida gubernatorial candidates")
+bp
+
+```
+
+## Which Topics Dominate the Discussion
+
+Below is a collection of some politically charged words, summarized by how often they are mentioned in the twitter corpus. In Florida, climate change and healthcare seem to be some of the biggest issues. Intrestingly, corruption seems to be a major issue, which perhaps reflects Andrew Gillum's corruption scandal when he was mayor of Tallahassee. 
+
+```{r, echo = FALSE, warning=F, message=FALSE}
+
+politic_words <- c("gun", "climate", "corrupt", "immigration", "healthcare", "terror", "economy", "racism")
+
+charged_counts <- sapply(politic_words, function (x) {
+                    mention <- str_locate(twits$text, fixed(x, ignore_case=TRUE))
+                    return (length(mention[!is.na(mention)]))
+                  })
+
+words_df <- as.data.frame(charged_counts)
+names(words_df) <- c("Count")
+
+#words_df %>% knitr::kable()
+
+
+# charged_plot <- barplot(charged_counts, main = "Mentions of politically charged words", 
+#        names.arg = politic_words, col=c("green","red", "yellow", "pink"), ylim = c(0, 12000))
+
+# text(x = charged_plot, y = charged_counts, label = charged_counts, pos = 3, cex = 0.8, col = "black")
+```
+
+```{r, echo = FALSE, warning=F, message=FALSE, fig.height= 4}
+df <- data.frame(
+  word = politic_words,
+  count = charged_counts
+  
+)
+p<-ggplot(data=df, aes(x=word, y=charged_counts)) +
+  geom_bar(stat="identity") + xlab("Politically Charged Word") + ylab("Counts") + ggtitle("Mentions of Politically Charged Words")
+p + coord_flip()
+```
+
+## When are people tweeting?
+For this plot, we solely focus on tweets we collected on tweets collected on October 21st, the day of the debate between Ron DeSantis and Andrew Gillum. This time series shows the number of tweets fired out in 5 minute periods in the hours leading up to the debate. Political tweet traffic is pretty slow in the hours leading up to the debate, but skyrocket as the debate approaches closer, and hits a peak right before the debate starts.
+
+```{r, echo = F, warning = F, message = F}
+library(xts)
+
+convertTime <- function(date) {
+  str <- as.character.POSIXt(date)
+  str <- strptime(str, "%a %b %d %H:%M:%S %z %Y", tz = "GMT") 
+  dt.gmt <- as.POSIXct(str, tz = "GMT", format = "%a %b %d %H:%M:%S %z %Y") 
+  #return(dt.gmt) 
+  return( (format(dt.gmt, tz = "EST", usetz = FALSE)))
+}
+
+dateVec <- sapply(twits$created_at, convertTime)
+twits["createdDate"] <- dateVec
+new_vec <- sapply(twits$createdDate, function(x) as.POSIXct(x))
+val <- group_by(twits, group = cut(as.POSIXct(twits$createdDate), breaks = "5 min"))
+df2 <- aggregate(twits, by = list(val$group) , length )
+```
+
+```{r, echo = FALSE, warning=F, message=FALSE}
+ts.df <- dplyr::select(df2, Group.1, created_at)
+ts.df$Group.1 <- as.character(ts.df$Group.1)
+for (i in 1:length(ts.df$Group.1)) {
+  my.string <- ts.df$Group.1[i]
+  replacement_string <- gsub("2018-10-21 ", "", my.string)
+  replacement_string_final <- gsub(":00", "", replacement_string)
+  ts.df$Group.1[i] <- replacement_string_final
+}
+#c <-  "2018-10-21 16:03:00 "
+#gsub("2018-10-21 ", "", c)
+```
+
+
+```{r, echo = FALSE, warning=F, message=FALSE, fig.height=3}
+ggplot(data = ts.df)+
+  aes(x = Group.1, 
+      y = created_at # mirror for count
+      )+
+  geom_point()+ geom_line(group = 1, col = "red")+
+  ggtitle("Time Series of Tweet Counts")+
+  theme(axis.text.x = element_text(angle = 75, hjust = 1))+
+  xlab("Time")+
+  ylab("Tweets Sent")
+
+```
+
+## Does anybody Tweet Disproportionately?
+In this partcular set, we are looking at some of the most prolific political tweeters on October 21st, the day of the Florida Midterm Election Debates. Certain users are dominating the political conversation, most notablely @LisaKBromley and "@LynnCatWalters". By looking at the accounts, we can try to map the user's political allegiance. Most of the accounts have their political leanings right in their bio, making these users rather easy to label. @BPstory tweets very liberal content, so we labeled their bar blue. @NancyKnittle tweets pro-Trump memes regularly, so it is safe to label them as a Republican. As we can see, pro-Gillum tweeters dominated the platform, with the majority of high volume users identifying as liberal.
+
+```{r,echo = FALSE, warning=F, message=FALSE, fig.height=3.25}
+ggplot(data = highNames)+ 
+  aes(x = User, y = numTweets)+
+  geom_bar(stat = "identity", aes(fill = User))+ 
+  ggtitle("Who were the Prolific Political Tweeters on October 21st?")+ scale_fill_manual(
+    values=c("#4682B4", # BLUE
+             "#0000CD", # BLUE
+             "#4682B4", # BLUE
+             "#708090", # GRAY
+             "#B0E0E6", # BLUE
+             "#ADD8E6", # BLUE
+             "#87CEEB", # BLUE
+             "#87CEFA", # BLUE
+             "#FF0000", # RED
+             "#FF4500", # RED
+             "#6495ED", # BLUE
+             "#4169E1", # BLUE
+             "#0000FF"))+ # BLUE
+  ylab("Number of Tweets")+
+  theme(axis.text.x = element_text(angle = 35, hjust = 1)) + theme(legend.position = "none")
+    
+```
+
+## What can we learn from the polling data
+One interesting question we can ask with our data is how tweets around political candidates represent election results and polling results. Can twitter be used as a data source similar to a poll for election prediction? It is difficult to tag a particular tweet as "republican" or "democrat", so we looked at the mentions of the democratic and republican candidate and took the average number of tweets mentioning these candidates when candidates were mentioned. Here, we are assuming activity surrounding a politcal candidate can be considered equivalent to endorsement of said candidate, or at least can be compared to polls.
+
+We plot the average polling results for republicans and democrats from the data we scraped and the average polling results just for Florida. Alongside these, we also plot the average mentions of candidates for the Florida election. We can see from a quick visual that the tweet mentions of democrats and republicans are very different from the national and state polling averages. Florida election polling also seems to be different from the national average, with less support for the democrats. This may mean that twitter has an outsized democratic support or that our assumption about activity surrounding a candidate is an incorrect measurement technique. Either conclusion is interesting and both warrant further investigation.
+
+### .
+
+```{r, echo = FALSE, warning=F, message=FALSE}
+meanDem <- round(mean(polls$Democrat), digits = 2)
+meanRepub <- round(mean(polls$Republican), digits = 2)
+
+meanDemFlor <- round(
+  mean(
+    as.numeric(
+      as.character(polling$Democrat))), 
+  digits = 2)
+
+meanRepubFlor <- round(
+  mean(
+  as.numeric(
+    as.character(polling$Republican))), digits = 2)
+
+
+
+desantisCountAvg <- round(
+  desantis_count/ (desantis_count + gillum_count) * 100, 
+  digits = 2)
+gillumCountAvg <- round(
+  gillum_count / (desantis_count + gillum_count) * 100, 
+  digits = 2)
+
+df <- as.data.frame( cbind(c("Dem Poll Mean", "Dem FL Poll Mean", 
+                             "Dem Tweet Mention", 
+                             "Rep Poll Mean", "Rep FL Poll Mean", 
+                             "Rep Tweet Mention" ), 
+                           c(meanDem, 
+                             meanDemFlor, 
+                             gillumCountAvg,meanRepub, 
+                             meanRepubFlor,
+                             desantisCountAvg), 
+                           c("1","1","1","2","2","2")))
+
+
+ggplot(df, aes(x = df[,1], y = df[,2], fill = df[,3]), 
+       color = c("blue", "red")) + 
+  geom_bar(stat = "identity", position = "dodge2") +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1, size = 8), legend.position="none") + 
+  xlab("") + ylab("Percentages") +
+  ggtitle(
+    "Democrat and Republic split with respect to polling and Twitter data ") +
+  scale_fill_manual(values=c("blue", "red")) 
+```
+
+Just looking at the polls also can tell us quite a lot about how the election would go. We collected polling data from February the 26th to November 5, a few days before the election. As we can see, the Democrats had a substantial lead, but the gap closed completely in the days leading up to the elections. The strong democrat lead reflects the large amount of Andrew Gillum tweets we see in our dataset. However, the polling numbers related to the Republican's strong surge at the beginning of November suggests that they may have the edge in the election.
+
+```{r, echo = FALSE, warning=F, message=FALSE}
+
+polling <- polling[-c(1,2),]
+
+polling$Date <- factor(polling$Date, levels = rev(unique(polling$Date)), ordered=TRUE)
+
+
+ggplot(polling, aes(Date, group = 1)) + 
+  geom_line(aes(y = Democrat, colour = "Democrat")) + 
+  geom_line(aes(y = Republican, colour = "Republican")) +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1, size = 8)) +
+  xlab("Date")+
+  ylab("Polling Percentage")+
+  ggtitle("Polling Percentage from 2/26 to 11/15")+
+  scale_color_manual("Party", values = c("Blue", "Red"))
+```
+
+
+```{r, echo=FALSE}
+
+politic_words <- c("gun", "climate",  "healthcare", "economy")
+
+
+charged_counts_gillum <- sapply(politic_words, function (x) {
+                    mention <- str_locate(twits$text, fixed(x, ignore_case=TRUE))
+                    mention2 <- str_locate(twits$text, fixed("gillum", ignore_case=TRUE))
+                    both_mention <- mention + mention2
+                    return (length(both_mention[!is.na(both_mention)]))
+                  })
+
+
+charged_counts_desantis <- sapply(politic_words, function (x) {
+                    mention <- str_locate(twits$text, fixed(x, ignore_case=TRUE))
+                    mention2 <- str_locate(twits$text, fixed("desantis", ignore_case=TRUE))
+                    both_mention <- mention + mention2
+                    return (length(both_mention[!is.na(both_mention)]))
+                  })
+
+
+gillum_percs_10_21 <- charged_counts_gillum/sum(charged_counts_gillum)
+desantis_percs_10_21 <- charged_counts_desantis/sum(charged_counts_desantis)
+
+
+charged_counts_gillum <- sapply(politic_words, function (x) {
+                    mention <- str_locate(twits11_1$text, fixed(x, ignore_case=TRUE))
+                    mention2 <- str_locate(twits11_1$text, fixed("gillum", ignore_case=TRUE))
+                    both_mention <- mention + mention2
+                    return (length(both_mention[!is.na(both_mention)]))
+                  })
+
+
+charged_counts_desantis <- sapply(politic_words, function (x) {
+                    mention <- str_locate(twits11_1$text, fixed(x, ignore_case=TRUE))
+                    mention2 <- str_locate(twits11_1$text, fixed("desantis", ignore_case=TRUE))
+                    both_mention <- mention + mention2
+                    return (length(both_mention[!is.na(both_mention)]))
+                  })
+
+
+gillum_percs_11_1 <- charged_counts_gillum/sum(charged_counts_gillum)
+desantis_percs_11_1 <- charged_counts_desantis/sum(charged_counts_desantis)
+
+charged_counts_gillum <- sapply(politic_words, function (x) {
+                    mention <- str_locate(twits11_5$text, fixed(x, ignore_case=TRUE))
+                    mention2 <- str_locate(twits11_5$text, fixed("gillum", ignore_case=TRUE))
+                    both_mention <- mention + mention2
+                    return (length(both_mention[!is.na(both_mention)]))
+                  })
+
+
+charged_counts_desantis <- sapply(politic_words, function (x) {
+                    mention <- str_locate(twits11_5$text, fixed(x, ignore_case=TRUE))
+                    mention2 <- str_locate(twits11_5$text, fixed("desantis", ignore_case=TRUE))
+                    both_mention <- mention + mention2
+                    return (length(both_mention[!is.na(both_mention)]))
+                  })
+
+
+gillum_percs_11_5 <- charged_counts_gillum/sum(charged_counts_gillum)
+desantis_percs_11_5 <- charged_counts_desantis/sum(charged_counts_desantis)
+
+
+charged_counts_gillum <- sapply(politic_words, function (x) {
+                    mention <- str_locate(twits11_6$text, fixed(x, ignore_case=TRUE))
+                    mention2 <- str_locate(twits11_6$text, fixed("gillum", ignore_case=TRUE))
+                    both_mention <- mention + mention2
+                    return (length(both_mention[!is.na(both_mention)]))
+                  })
+
+
+charged_counts_desantis <- sapply(politic_words, function (x) {
+                    mention <- str_locate(twits11_6$text, fixed(x, ignore_case=TRUE))
+                    mention2 <- str_locate(twits11_6$text, fixed("desantis", ignore_case=TRUE))
+                    both_mention <- mention + mention2
+                    return (length(both_mention[!is.na(both_mention)]))
+                  })
+
+
+gillum_percs_11_6 <- charged_counts_gillum/sum(charged_counts_gillum)
+desantis_percs_11_6 <- charged_counts_desantis/sum(charged_counts_desantis)
+
+dem_amounts <- list(gillum_percs_10_21, gillum_percs_11_1, gillum_percs_11_5, gillum_percs_11_6)
+rep_amounts <- list(desantis_percs_10_21, desantis_percs_11_1, desantis_percs_11_5, desantis_percs_11_6)
+```
+
+# Killer Plot - Showing breakdown of Issues by Party
+
+```{r, echo = FALSE, fig.align="center"}
+
+grid.newpage()
+# grid.polygon(x=c(0.25, 0.25, 0.75, 0.75), y=c(0.25, 0.75, 0.75, 0.25)
+#                 # id=rep(1:2, 2)
+#                 )
+    
+amounts <- gillum_percs_10_21
+cum_amounts <- cumsum(amounts)
+
+height1 <- 0.3
+height2 <- 0.7
+width1 <- 0.3
+width2 <- 0.7
+
+diff <- width2 - width1
+polygon_vals <- cumsum(c(width1, diff*amounts))
+new_polygon_vals <- c(polygon_vals, polygon_vals[-1])
+total_vals <- c(rep(polygon_vals, 2), rep(polygon_vals[-1], 2))
+ids <- c(rep(1:length(polygon_vals),2), rep(1:(length(polygon_vals)-1), 2))
+y_vals <- c(rep(height1,length(polygon_vals)), rep(height2,length(polygon_vals)), rep(height2, length(polygon_vals[-1])), rep(height1, length(polygon_vals[-1])))
+
+
+blue_col <- "#4285F4"
+
+
+
+#tail
+#grid.polygon(x = c(width1,0.21,width1), y = c(height2, 0.5, 0.6), gp=gpar(fill="mediumblue"))
+grid.xspline(x = c(width1,0.21,width1), y = c(height2, 0.5, 0.6), gp=gpar(fill=blue_col), shape = 0.4, open = FALSE)
+
+#neck
+#grid.polygon(x = c(width2, 0.78,0.81,width2), y = c(height2, 0.82,0.73,0.4), gp=gpar(fill="mediumblue"))
+
+
+grid.xspline(x = c(width2 - 0.02, 0.78,0.87, 0.95, 0.93, 0.81,width2 - 0.02), y = c(height2, 0.82,0.82, 0.71, 0.65, 0.73,0.4), shape= 0.4,
+     gp=gpar(fill=blue_col), open = FALSE)
+
+#head
+#grid.polygon(x = c(0.78,0.81, 0.93,0.95, 0.87), y = c(0.82, 0.73, 0.65, 0.71, 0.82), gp=gpar(fill="mediumblue"))
+
+#ear
+#grid.polygon(x = c(0.87, 0.84,0.88), y = c(0.82, 0.82,0.89), gp=gpar(fill="mediumblue"))
+
+grid.xspline(x = c(0.87, 0.84,0.88), y = c(0.82, 0.82,0.89), gp=gpar(fill=blue_col), shape = 0.4, open = FALSE)
+grid.xspline(x = c(0.85, 0.82,0.86), y = c(0.82, 0.82,0.89), gp=gpar(fill=blue_col), shape = 0.4, open = FALSE)
+
+#leg
+# grid.polygon(x = c(width1 + 0.05, width1 + 0.05, width1 + 0.12, width1 + 0.12), y = c(height1,0.1, 0.1, height1), gp=gpar(fill="mediumblue"))
+
+grid.xspline(x = c(width1 + 0.05, width1 + 0.05, width1 + 0.12, width1 + 0.12), y = c(height1 + 0.2,0.1, 0.1, height1 + 0.2), gp=gpar(fill=blue_col), shape = 0.4, open = FALSE)
+
+
+#leg2
+# grid.polygon(x = c(width2 - 0.05, width2 - 0.05, width2 - 0.12, width2 - 0.12), y = c(height1,0.1, 0.1, height1), gp=gpar(fill="mediumblue"))
+
+grid.xspline(x = c(width2 - 0.05, width2 - 0.05, width2 - 0.12, width2 - 0.12), y = c(height1 + 0.2,0.1, 0.1, height1 + 0.2), gp=gpar(fill=blue_col), shape = 0.4, open = FALSE)
+
+grid.polygon(x=total_vals, y=y_vals,
+             id = ids,
+             gp=gpar(fill=c("#7E57C2", "#9575CD","#B39DDB", "#D1C4E9"), lwd =1.3))
+
+
+grid.text("Breakdown of issue-related tweets associated \nwith the Democratic candidate", y = unit( height2 + 0.18, "npc"), 
+          gp = gpar(fontfamily = "sans", fontface="bold", fontsize = "14"))
+
+
+
+
+
+
+
+
+```
+
+```{r, echo=FALSE, fig.align="center"}
+
+
+grid.newpage()
+# grid.polygon(x=c(0.25, 0.25, 0.75, 0.75), y=c(0.25, 0.75, 0.75, 0.25)
+#                 # id=rep(1:2, 2)
+#                 )
+amounts <- desantis_percs_10_21
+cum_amounts <- cumsum(amounts)
+
+
+height1 <- 0.3
+height2 <- 0.85
+width1 <- 0.3
+width2 <- 0.8
+
+diff <- width2 - width1
+polygon_vals <- cumsum(c(width1, diff*amounts))
+new_polygon_vals <- c(polygon_vals, polygon_vals[-1])
+total_vals <- c(rep(polygon_vals, 2), rep(polygon_vals[-1], 2))
+ids <- c(rep(1:length(polygon_vals),2), rep(1:(length(polygon_vals)-1), 2))
+y_vals <- c(rep(height1,length(polygon_vals)), rep(height2,length(polygon_vals)), rep(height2, length(polygon_vals[-1])), rep(height1, length(polygon_vals[-1])))
+
+red_col <- "#DB4437"
+
+# #tail
+# grid.polygon(x = c(width2,width2 + 0.05,width2), y = c(height2, 0.5, 0.6))
+
+#neck
+#grid.polygon(x = c(width1, width1 - 0.2,width1 - 0.2,width1), y = c(height2, height2,0.55,0.55), gp=gpar(fill="red2"))
+
+grid.xspline(x = c(width1 + 0.1, width1 - 0.2,width1 - 0.2, width1 - 0.2,width1 - 0.14,width1 - 0.14, width1 + 0.1), y = c(height2, height2,0.55, 0.15,0.15,0.55,0.55), shape= 0.4, open = FALSE,
+     gp=gpar(fill=red_col))
+
+#trunk
+#grid.polygon(x = c(width1 - 0.2, width1 - 0.2,width1 - 0.14,width1 - 0.14), y = c(0.55, 0.15,0.15,0.55), gp=gpar(fill="red2"))
+
+#leg
+# grid.polygon(x = c(width1 + 0.05, width1 + 0.05, width1 + 0.12, width1 + 0.12), y = c(height1,0.1, 0.1, height1), gp=gpar(fill="mediumblue"))
+
+grid.xspline(x = c(width1 + 0.05, width1 + 0.05, width1 + 0.12, width1 + 0.12), y = c(height1 + 0.2,0.1, 0.1, height1 + 0.2), gp=gpar(fill=red_col), shape = 0.4, open = FALSE)
+
+
+#leg2
+# grid.polygon(x = c(width2 - 0.05, width2 - 0.05, width2 - 0.12, width2 - 0.12), y = c(height1,0.1, 0.1, height1), gp=gpar(fill="mediumblue"))
+
+grid.xspline(x = c(width2 - 0.05, width2 - 0.05, width2 - 0.12, width2 - 0.12), y = c(height1 + 0.2,0.1, 0.1, height1 + 0.2), gp=gpar(fill=red_col), shape = 0.4, open = FALSE)
+
+
+grid.text("Breakdown of issue-related tweets associated \nwith the Republican candidate", y = unit( height2 + 0.08, "npc"), 
+          gp = gpar(fontfamily = "sans", fontface="bold", fontsize = "14"))
+
+grid.polygon(x=total_vals, y=y_vals,
+             id = ids,
+             gp=gpar(fill=c( "#7E57C2", "#9575CD","#B39DDB", "#D1C4E9"), lwd =1.3))
+```
+
+In our killer plot, we wanted to show the breakdown of issues by party. The democratic party is represented by the donkey and the republican party is represented by the elephant. The size of the box represents the importance a certain topic had in the political convresation - if it was mentioned more, its correpsonding box has more size. We classified tweets as republican if they mentioned "DeSantis" and democrat if they mentioned "Gillum."  From left to right, the issues we looked at are gun control, climate change, healthcare, and the economy. For the democrats, climate change is much more important than for the republicans. In contrast, guns play a much bigger roll in the conversation for the republicans than the democrats. This shows is that the importance of certain issues are very different depending on the party. To make the plot more "killer", we have also added shiny compatibility to show how the conversation changes per day.
+
+# Conclusions
+
+By completing this analysis, we were able to answer many of our questions regarding how people interact with Twitter. As we saw, there is strong positive correlations between twitter metrics like followers, favories, statuses, and friends. Using this fact, we were able to create a model to predict the number of followers a twitter user has given the number of statuses the user has. We learned that follower distribution is highly right skewed. We also saw the tweets follow Zipf's law, meaning tweets have many of the properties of conventional natural language. 
+
+Also, we wanted to answer some political questions with our twitter data. By showing that democratic Twitter traffic was much higher than that of the republicans, we suggest that Twitter has a left-leaning bias. However, we saw that the topics that dominate the political conversation include healthcare and climate change. Further, we saw that much of the prolific tweeters were left leaning. 
+
+For future consideration, we might want to consider how many of these tweets are produced by bot accounts and how they influence the discussion. Furthermore, we may want to perform some senitiment analysis in order to better classify tweets as democratic or republican.
+

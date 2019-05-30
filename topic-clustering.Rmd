@@ -1,0 +1,258 @@
+---
+title: "Topic Clustering"
+author: "Emre Yurtbay"
+date: "2/15/2019"
+output:
+  html_document:
+    df_print: paged
+---
+#### Imports
+```{r}
+library(tidyverse)
+theme_bluewhite <- function (base_size = 11, base_family = "") {
+    theme_bw() %+replace% 
+    theme(
+      panel.grid.major  = element_line(color = "white"),
+      panel.background = element_rect(fill = "lightblue"),
+      panel.border = element_rect(color = "lightblue", fill = NA),
+      axis.line = element_line(color = "lightblue"),
+      axis.ticks = element_line(color = "lightblue"),
+      axis.text = element_text(color = "steelblue")
+      )
+}
+```
+
+
+## Data Preperation
+
+```{r, message=F}
+# read in the Twitter data
+tweets <- readr::read_csv(
+  '/Users/emreyurtbay/Documents/Rice/junior/stat405/TweetData.csv'
+  )
+```
+
+```{r}
+library(jsonlite)
+
+# political leanings
+json_file <-"/Users/emreyurtbay/Documents/Rice/junior/stat405/10-21-groups.json"
+json_data <- jsonlite::fromJSON(json_file, simplifyMatrix = TRUE)
+```
+
+```{r}
+politicalLeanings <- as_data_frame(json_data)
+politicalLeanings <- dplyr::rename(politicalLeanings, party = V1)
+politicalLeanings <- dplyr::rename(politicalLeanings, screen_name = V2)
+politicalLeanings <- select(politicalLeanings, party, screen_name)
+head(politicalLeanings)
+```
+
+
+
+```{r}
+# Select Columns We Need
+tweets <- dplyr::select(tweets, id, screen_name, text)
+head(tweets)
+```
+
+```{r}
+library(tidytext)
+
+# timing
+ptm <- proc.time()
+
+# tidy text
+tidy_tweets <- unnest_tokens(
+  tweets, # tbl
+  word, # output
+  text # input
+                        ) 
+
+# end timing
+proc.time() - ptm
+
+```
+
+```{r, message=F}
+# remove common stopwords
+data("stop_words")
+tidy_tweets <- dplyr::anti_join(tidy_tweets, stop_words)
+
+# data specific stopwords
+tidy_tweets <- dplyr::filter(tidy_tweets, 
+                        tidy_tweets$word != "rt", 
+                        tidy_tweets$word != "t.co",
+                        tidy_tweets$word != "https") # common stopword in our tweets
+```
+
+## Common Words on Oct. 21
+
+```{r}
+# View the most common words tweeted in our dataset
+library(ggplot2)
+
+wordCount <- count(tidy_tweets, word, sort = T)
+wordCount <- filter(wordCount, n >= 5368)
+
+ggplot(data = wordCount)+
+  aes(x = word, y = n)+
+  geom_bar(stat = "identity")+
+  theme_bluewhite()+
+   theme(axis.text.x = element_text(angle = 35, hjust = 1))+
+    xlab(NULL)+ylab("Count")+ggtitle("Most Commonly Tweets Words - Florida 8/21")
+```
+
+## Word Clouds Based on Group
+
+```{r}
+# Join Political Leanings with Screen Name
+tweets_labeled <- merge(tweets, politicalLeanings, by = "screen_name")
+head(tweets_labeled)
+```
+
+```{r, message = FALSE}
+# Tidy the Joined Data
+# tidy text
+
+tidy_tweets_l <- unnest_tokens(
+  tweets_labeled, # tbl
+  word, # output
+  text # input
+                        ) 
+# remove common stopwords
+data("stop_words")
+tidy <- dplyr::anti_join(tidy_tweets_l, stop_words)
+
+# data specific stopwords
+tidy <- dplyr::filter(tidy, 
+                        tidy$word != "rt", 
+                        tidy$word != "t.co",
+                        tidy$word != "https") # common stopword in our tweets
+
+head(tidy)
+```
+
+```{r}
+# Word Cloud 
+library(wordcloud)
+
+tidy_republican <- filter(tidy, party == 1)
+rep_cloud <- count(tidy_republican, word)
+wordcloud(rep_cloud$word, rep_cloud$n, max.words = 50, colors = "red", 
+          scale = c(3.5, 0.5))
+```
+
+```{r}
+# Word Cloud
+tidy_democrat <- filter(tidy, party == 0)
+dem_cloud <- count(tidy_democrat, word)
+wordcloud(dem_cloud$word, dem_cloud$n, max.words = 45, colors = "blue", 
+          scale = c(3.5, 0.5))
+```
+
+## LDA For All Groups - TF Weighting
+```{r}
+total_dtm <- tidy %>% 
+  as_tibble() %>% 
+  select(id, word) %>% 
+  count(id, word) %>% 
+  cast_dtm(id, word, n) # %>% tm::weightTfIdf()
+
+# Fit an LDA Model
+total_lda <- topicmodels::LDA(total_dtm, k = 2)
+total_topics <- tidy(total_lda, matrix = "beta")
+
+# top 5 words in each topic
+top_terms <- total_topics %>%
+  group_by(topic) %>%
+  top_n(20, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+# Plot
+top_terms %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip()
+```
+
+## LDA For Democratic Group - TF Weighting
+
+```{r}
+# Cast tweets to a Document Term Matrix
+
+demo_dtm <- tidy_democrat %>% 
+  as_tibble() %>% 
+  select(id, word) %>% 
+  count(id, word) %>% 
+  cast_dtm(id, word, n) # %>% tm::weightTfIdf()
+```
+
+```{r}
+demo_dtm
+```
+
+```{r}
+demo_lda <- topicmodels::LDA(demo_dtm, k = 4)
+```
+
+```{r}
+demo_lda
+```
+
+```{r}
+dem_topics <- tidy(demo_lda, matrix = "beta")
+dem_topics
+```
+
+```{r}
+# top 5 words in each topic
+top_terms <- dem_topics %>%
+  group_by(topic) %>%
+  top_n(20, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+top_terms
+```
+```{r}
+top_terms %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip()
+```
+
+
+
+## LDA For Republicans - TF Weighting
+```{r}
+r_dtm <- tidy_republican %>% 
+  as_tibble() %>% 
+  select(id, word) %>% 
+  count(id, word) %>% 
+  cast_dtm(id, word, n) # %>% tm::weightTfIdf()
+
+# Fit an LDA Model
+r_lda <- topicmodels::LDA(r_dtm, k = 2)
+r_topics <- tidy(r_lda, matrix = "beta")
+
+# top 5 words in each topic
+r_terms <- r_topics %>%
+  group_by(topic) %>%
+  top_n(20, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+# Plot
+top_terms %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip()
+```
